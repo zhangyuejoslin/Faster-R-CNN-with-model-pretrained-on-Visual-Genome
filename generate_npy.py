@@ -323,7 +323,7 @@ def get_detections_from_im(fasterRCNN, classes, im_file, args, conf_thresh=0.2):
         keep_boxes = torch.where(max_conf >= conf_thresh, max_conf, torch.tensor(0.0).cuda())
     else:
         keep_boxes = torch.where(max_conf >= conf_thresh, max_conf, torch.tensor(0.0))
-    keep_boxes = torch.squeeze(torch.nonzero(keep_boxes))
+    keep_boxes = torch.squeeze(torch.nonzero(keep_boxes), dim=-1)
     if len(keep_boxes) < MIN_BOXES:
         keep_boxes = torch.argsort(max_conf, descending = True)[:MIN_BOXES]
     elif len(keep_boxes) > MAX_BOXES:
@@ -409,13 +409,26 @@ def load_model(args):
 
     return classes, fasterRCNN
 
-def generate_npy(image_ids):
+
+def generate_npy(image_ids, classes, faster_rcnn):
     generated_data = {}
-    classes, fasterRCNN = load_model(args)
+    
     for im_file, heading in tqdm(image_ids):
         generated_data[heading] = get_detections_from_im(fasterRCNN, classes, im_file, args)
     return generated_data
-    
+
+def combine_npy(relative_generate_path):
+    """
+    generate each states npy seperately, and then combine them. You could generate directly.
+    """
+    feature_of_all_states = {}
+    generated_files_list = os.listdir(relative_generate_path)
+    for generated_file in tqdm(generated_files_list):
+        each_state_dict = np.load(os.path.join(relative_generate_path, generated_file))
+        feature_of_all_states.update(each_state_dict.item())
+
+    print(len(feature_of_all_states.keys()))
+    np.save(args.outfile, feature_of_all_states)
 
 if __name__ == '__main__':
     """
@@ -428,11 +441,14 @@ if __name__ == '__main__':
     }
     """
     args = parse_args()
+    classes, fasterRCNN = load_model(args)
     state_index = 1
     feature_of_all_states = {}
     relative_path = "/VL/space/zhan1624/room2room/generated_images/"
     state_list = os.listdir(relative_path + "1pXnuDYAj8r")
-    for state_id in state_list:
+    for state_id in state_list[11:]:
+      if state_id  == '6cc97300dcd2469c82449756fef5cffd':
+        each_state = {}
         state_path = relative_path + "1pXnuDYAj8r/" + state_id
         image_ids = []
         heading_list = os.listdir(state_path)
@@ -443,8 +459,12 @@ if __name__ == '__main__':
             heading = each_image[1][:-4]
             temp.append(float(heading))
             image_ids.append(temp)
-        feature_of_all_states[state_id] = generate_npy(image_ids)
+        #each_state[state_id] = generate_npy(image_ids, classes, fasterRCNN)
+        feature_of_all_states[state_id] = generate_npy(image_ids, classes, fasterRCNN)
+        feature_of_all_states[state_id] = each_state[state_id]
         print("already finish state" + str(state_index))
         state_index += 1    
-
+        #np.save("generated_npy/"+state_id, each_state)
+    
     np.save(args.outfile, feature_of_all_states)
+    #combine_npy(relative_generate_path = "generated_npy")
