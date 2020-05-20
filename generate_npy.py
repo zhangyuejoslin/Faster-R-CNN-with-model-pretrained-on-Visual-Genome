@@ -93,7 +93,7 @@ def parse_args():
                         default="data/genome/1600-400-20")
     parser.add_argument('--out', dest='outfile',
                         help='output filepath',
-                        default="object_representation.npy", type=str)
+                        default="object_representation1.npy", type=str)
     parser.add_argument('--cfg', dest='cfg_file',
                         help='optional config file',
                         default='cfgs/res101.yml', type=str)
@@ -341,7 +341,7 @@ def get_detections_from_im(fasterRCNN, classes, im_file, args, conf_thresh=0.2):
         'image_h': np.size(im, 0),
         'image_w': np.size(im, 1),
         'num_boxes': len(keep_boxes),
-        'boxes': box_dets,
+        'boxes': box_dets, # region shape 4 * 36, 4 is the xy positions
         'features': (pooled_feat[keep_boxes].cpu()).detach().numpy()
     }
 
@@ -413,7 +413,7 @@ def load_model(args):
 def generate_npy(image_ids, classes, faster_rcnn):
     generated_data = {}
     
-    for im_file, heading in tqdm(image_ids):
+    for im_file, heading in image_ids:
         generated_data[heading] = get_detections_from_im(fasterRCNN, classes, im_file, args)
     return generated_data
 
@@ -442,29 +442,34 @@ if __name__ == '__main__':
     """
     args = parse_args()
     classes, fasterRCNN = load_model(args)
-    state_index = 1
-    feature_of_all_states = {}
-    relative_path = "/VL/space/zhan1624/room2room/generated_images/"
-    state_list = os.listdir(relative_path + "1pXnuDYAj8r")
-    for state_id in state_list[11:]:
-      if state_id  == '6cc97300dcd2469c82449756fef5cffd':
-        each_state = {}
-        state_path = relative_path + "1pXnuDYAj8r/" + state_id
-        image_ids = []
-        heading_list = os.listdir(state_path)
-        for each_image in heading_list:
-            temp = []
-            temp.append(os.path.join(state_path,each_image))
-            each_image = each_image.split('_')
-            heading = each_image[1][:-4]
-            temp.append(float(heading))
-            image_ids.append(temp)
-        #each_state[state_id] = generate_npy(image_ids, classes, fasterRCNN)
-        feature_of_all_states[state_id] = generate_npy(image_ids, classes, fasterRCNN)
-        feature_of_all_states[state_id] = each_state[state_id]
-        print("already finish state" + str(state_index))
-        state_index += 1    
-        #np.save("generated_npy/"+state_id, each_state)
     
-    np.save(args.outfile, feature_of_all_states)
-    #combine_npy(relative_generate_path = "generated_npy")
+    relative_path = "/egr/research-hlr/joslin/room2room/generated_images/"
+    all_scenery = os.listdir(relative_path)
+
+    for scen_id, each_scenery in enumerate(all_scenery):
+        feature_of_all_states = {}
+        output_file_list = os.listdir("pre-trained/")
+        if each_scenery in output_file_list:
+            continue
+        state_list = os.listdir(relative_path + each_scenery)
+        for state_id in tqdm(state_list):
+            each_state = {}
+            state_path = relative_path + each_scenery + "/" + state_id
+            image_ids = []
+            heading_list = os.listdir(state_path)
+            for each_image in heading_list:
+                temp = []
+                temp.append(os.path.join(state_path,each_image))
+                each_image = each_image.split('_')
+                heading = each_image[1][:-4]
+                temp.append(float(heading))
+                image_ids.append(temp)
+            #each_state[state_id] = generate_npy(image_ids, classes, fasterRCNN)
+            feature_of_all_states[state_id] = generate_npy(image_ids, classes, fasterRCNN)
+            # feature_of_all_states[state_id] = each_state[state_id] 
+            #np.save("generated_npy/"+state_id, each_state)
+        
+        np.save("pretrained_npy/"+each_scenery+".npy", feature_of_all_states)
+        print('finish scenery '+ str(scen_id) + " " + each_scenery)
+
+        #combine_npy(relative_generate_path = "generated_npy")
