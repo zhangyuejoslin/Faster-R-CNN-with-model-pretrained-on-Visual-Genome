@@ -47,6 +47,10 @@ from model.faster_rcnn.vgg16 import vgg16
 from model.faster_rcnn.resnet import resnet
 import pdb
 from tqdm import tqdm
+import math
+import spacy
+nlp1 = spacy.load("en_core_web_lg")
+nlp2 = spacy.load("en_vectors_web_lg")
 
 try:
     xrange          # Python 2
@@ -93,7 +97,7 @@ def parse_args():
                         default="data/genome/1600-400-20")
     parser.add_argument('--out', dest='outfile',
                         help='output filepath',
-                        default="object_representation1.npy", type=str)
+                        default="object_representation_glove1.npy", type=str)
     parser.add_argument('--cfg', dest='cfg_file',
                         help='optional config file',
                         default='cfgs/res101.yml', type=str)
@@ -332,18 +336,39 @@ def get_detections_from_im(fasterRCNN, classes, im_file, args, conf_thresh=0.2):
     objects = torch.argmax(scores[keep_boxes][:,1:], dim=1)
     box_dets = np.zeros((len(keep_boxes), 4))
     boxes = pred_boxes[keep_boxes]
+    name_list = []
+    box_caption_feature = np.zeros((len(keep_boxes), 300))
+    box_caption_mask = np.ones(len(keep_boxes))
     for i in range(len(keep_boxes)):
         kind = objects[i]+1
         bbox = boxes[i, kind * 4: (kind + 1) * 4]
-        box_dets[i] = np.array(bbox.cpu())
+        tmp_dets = np.array(bbox.cpu())
+        if (tmp_dets[2]-tmp_dets[0]) * (tmp_dets[3]-tmp_dets[1]) <= 10:
+             box_caption_mask[i] = 0
+        class_name = classes[1:][objects[i]]
+        box_dets[i] = tmp_dets
+        name_list.append(class_name)
+        doc = nlp1(class_name)
+        token_vector = nlp2(doc[0].text).vector
+        box_caption_feature[i,:] = token_vector
 
     return {
         'image_h': np.size(im, 0),
         'image_w': np.size(im, 1),
         'num_boxes': len(keep_boxes),
-        'boxes': box_dets, # region shape 4 * 36, 4 is the xy positions
-        'features': (pooled_feat[keep_boxes].cpu()).detach().numpy()
+        #'boxes': box_dets, # region shape 4 * 36, 4 is the xy positions
+        #'features': (pooled_feat[keep_boxes].cpu()).detach().numpy(),
+        'text': name_list,
+        #'text_feature': box_caption_feature,
+       # 'text_mask': box_caption_mask
     }
+    # return {
+    #     'image_h': np.size(im, 0),
+    #     'image_w': np.size(im, 1),
+    #     'num_boxes': len(keep_boxes),
+    #     'boxes': box_dets, # region shape 4 * 36, 4 is the xy positions
+    #     'features': (pooled_feat[keep_boxes].cpu()).detach().numpy()
+    # }
 
 def load_model(args):
     # set cfg according to the dataset used to train the pre-trained model
@@ -424,11 +449,19 @@ def combine_npy(relative_generate_path):
     feature_of_all_states = {}
     generated_files_list = os.listdir(relative_generate_path)
     for generated_file in tqdm(generated_files_list):
-        each_state_dict = np.load(os.path.join(relative_generate_path, generated_file))
-        feature_of_all_states.update(each_state_dict.item())
+        each_state_dict = np.load(os.path.join(relative_generate_path, generated_file)).item()
+        feature_of_all_states[generated_file[:-4]] = each_state_dict
+        #feature_of_all_states.update(each_state_dict.item())
 
     print(len(feature_of_all_states.keys()))
     np.save(args.outfile, feature_of_all_states)
+
+def get_heading_degree():
+        new_headings = []
+        for i in range(0, 360, 30):
+            current_radians = i*math.pi/180
+            new_headings.append(str(current_radians))
+        return new_headings
 
 if __name__ == '__main__':
     """
@@ -443,9 +476,11 @@ if __name__ == '__main__':
     args = parse_args()
     classes, fasterRCNN = load_model(args)
     
-    relative_path = "/egr/research-hlr/joslin/room2room/generated_images/"
+    relative_path = "/egr/research-hlr/joslin/Matterdata/v1/scans/generated_images/"
+    #relative_path = "pre-trained"
     all_scenery = os.listdir(relative_path)
-
+    
+    all_scenery = ['rqfALeAoiTq']
     for scen_id, each_scenery in enumerate(all_scenery):
         feature_of_all_states = {}
         output_file_list = os.listdir("pre-trained/")
@@ -457,19 +492,25 @@ if __name__ == '__main__':
             state_path = relative_path + each_scenery + "/" + state_id
             image_ids = []
             heading_list = os.listdir(state_path)
-            for each_image in heading_list:
+            standard_headings = get_heading_degree()
+            new_heading_list = []
+            for each_heading in heading_list:
+                each_heading = 'e9fa9291c1e140aabfe4bba03e64a9a1_0.0'
+                tmp_heading = each_heading.split('_')
+                if tmp_heading[-1][:-4] in standard_headings:
+                    new_heading_list.append(each_heading)
+            
+            for each_image in new_heading_list:
                 temp = []
                 temp.append(os.path.join(state_path,each_image))
                 each_image = each_image.split('_')
                 heading = each_image[1][:-4]
                 temp.append(float(heading))
                 image_ids.append(temp)
-            #each_state[state_id] = generate_npy(image_ids, classes, fasterRCNN)
+            
             feature_of_all_states[state_id] = generate_npy(image_ids, classes, fasterRCNN)
-            # feature_of_all_states[state_id] = each_state[state_id] 
-            #np.save("generated_npy/"+state_id, each_state)
-        
-        np.save("pretrained_npy/"+each_scenery+".npy", feature_of_all_states)
+
+        np.save("pre-trained/"+each_scenery+".npy", feature_of_all_states)
         print('finish scenery '+ str(scen_id) + " " + each_scenery)
 
-        #combine_npy(relative_generate_path = "generated_npy")
+    #combine_npy(relative_generate_path = "/egr/research-hlr/joslin/Matterdata/v1/scans/object_representation/pre-trained")
